@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时翻译系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36D399',
+                        neutral: '#F3F4F6',
+                        dark: '#1F2937'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .translate-card {
+                @apply bg-white rounded-xl shadow-lg p-6 transition-all duration-300 hover:shadow-xl;
+            }
+            .btn-primary {
+                @apply bg-primary text-white px-6 py-3 rounded-lg font-medium transition-all duration-300 hover:bg-primary/90 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+            }
+            .btn-secondary {
+                @apply bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium transition-all duration-300 hover:bg-gray-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+            }
+            .form-input {
+                @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary outline-none transition-all duration-300;
+            }
+            .status-icon {
+                @apply inline-block w-5 h-5 rounded-full mx-2 transition-all duration-500;
+            }
+            .status-loading {
+                @apply border-2 border-gray-300 border-t-primary animate-spin;
+            }
+            .status-success {
+                @apply bg-secondary text-white flex items-center justify-center;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+    <div class="container mx-auto px-4 py-12 max-w-5xl">
+        <div class="text-center mb-8">
+            <h1 class="text-[clamp(1.8rem,5vw,2.5rem)] font-bold text-dark mb-2">实时翻译系统</h1>
+            <p class="text-gray-600">支持中英文互译的智能翻译工具</p>
+        </div>
+
+        <div class="translate-card">
+            <!-- 状态提示 -->
+            <div class="flex items-center mb-6">
+                <span class="text-gray-700 font-medium">系统状态:</span>
+                <span id="status-text" class="ml-2 text-gray-600">正在加载模型，请稍候...</span>
+                <span id="status-icon" class="status-icon status-loading"></span>
+            </div>
+
+            <!-- 翻译区域 -->
+            <div class="grid md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label for="input-text" class="block text-gray-700 font-medium mb-2">输入文本:</label>
+                    <textarea id="input-text" class="form-input h-40 resize-none" placeholder="请输入要翻译的文本..."></textarea>
+                </div>
+
+                <div>
+                    <label for="result-text" class="block text-gray-700 font-medium mb-2">翻译结果:</label>
+                    <div id="result-text" class="bg-neutral p-4 rounded-lg h-40 overflow-auto border border-gray-200">
+                        <span class="text-gray-500 italic">翻译结果将显示在这里...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 按钮区域 -->
+            <div class="flex justify-end space-x-4">
+                <button id="clear-btn" class="btn-secondary">
+                    <i class="fa fa-refresh mr-2"></i>清空
+                </button>
+                <button id="translate-btn" class="btn-primary" disabled>
+                    <i class="fa fa-language mr-2"></i>开始翻译
+                </button>
+            </div>
+
+            <!-- 提示区域 -->
+            <div class="mt-6 text-sm text-gray-500">
+                <i class="fa fa-lightbulb-o mr-1"></i>
+                <span id="hint-text">提示：请等待模型加载完成后输入文本进行翻译</span>
+            </div>
+        </div>
+
+        <div class="text-center mt-8 text-gray-500 text-sm">
+            <p>© 2025 实时翻译系统 | 基于ModelScope模型</p>
+        </div>
+    </div>
+
+    <script>
+        // 连接到WebSocket服务器
+        const socket = io();
+
+        // DOM元素
+        const translateBtn = document.getElementById('translate-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const inputText = document.getElementById('input-text');
+        const resultText = document.getElementById('result-text');
+        const statusText = document.getElementById('status-text');
+        const statusIcon = document.getElementById('status-icon');
+        const hintText = document.getElementById('hint-text');
+
+        // 监听连接事件
+        socket.on('connect', () => {
+            console.log('已连接到服务器');
+        });
+
+        // 监听模型状态变化
+        socket.on('model_status', (data) => {
+            if (data.status === 'loaded') {
+                // 模型加载完成
+                statusText.textContent = '模型预加载完成';
+                statusIcon.classList.remove('status-loading');
+                statusIcon.classList.add('status-success');
+                statusIcon.innerHTML = '<i class="fa fa-check"></i>';
+
+                // 启用翻译按钮
+                translateBtn.disabled = false;
+                hintText.textContent = '提示：请输入文本进行翻译';
+
+                // 添加动画效果
+                translateBtn.classList.add('animate-pulse');
+                setTimeout(() => {
+                    translateBtn.classList.remove('animate-pulse');
+                }, 1000);
+            } else if (data.status === 'loading') {
+                // 模型正在加载
+                statusText.textContent = '正在加载模型，请稍候...';
+                statusIcon.classList.remove('status-success');
+                statusIcon.classList.add('status-loading');
+                statusIcon.innerHTML = '';
+
+                // 禁用翻译按钮
+                translateBtn.disabled = true;
+                hintText.textContent = '提示：请等待模型加载完成后输入文本进行翻译';
+            } else if (data.status === 'error') {
+                // 模型加载错误
+                statusText.textContent = '模型加载失败';
+                statusIcon.classList.remove('status-loading', 'status-success');
+                statusIcon.classList.add('bg-red-500');
+                statusIcon.innerHTML = '<i class="fa fa-times"></i>';
+
+                // 禁用翻译按钮
+                translateBtn.disabled = true;
+                hintText.textContent = `错误：${data.message}`;
+            }
+        });
+
+        // 监听翻译结果
+        socket.on('translation_result', (data) => {
+            if (data.error) {
+                resultText.innerHTML = `<span class="text-red-500">${data.error}</span>`;
+            } else if (data.result) {
+                resultText.textContent = data.result;
+            }
+        });
+
+        // 翻译按钮点击事件
+        translateBtn.addEventListener('click', () => {
+            const text = inputText.value.trim();
+            if (!text) {
+                resultText.innerHTML = '<span class="text-red-500">请输入要翻译的文本</span>';
+                return;
+            }
+
+            // 发送翻译请求
+            socket.emit('translate', { text });
+
+            // 添加加载状态
+            resultText.innerHTML = '<div class="flex items-center justify-center h-full"><i class="fa fa-spinner fa-spin text-gray-400"></i></div>';
+        });
+
+        // 清空按钮点击事件
+        clearBtn.addEventListener('click', () => {
+            inputText.value = '';
+            resultText.innerHTML = '<span class="text-gray-500 italic">翻译结果将显示在这里...</span>';
+        });
+
+        // 输入框回车提交
+        inputText.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!translateBtn.disabled) {
+                    translateBtn.click();
+                }
+            }
+        });
+    </script>
+</body>
+</html>
